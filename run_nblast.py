@@ -4,12 +4,18 @@ import sys
 import rpy2.robjects as ro
 from rpy2.robjects.packages import importr
 from rpy2.robjects import r
+
+from instrumentation import TimingLogger
+
 r("options(rgl.useNULL=TRUE)")
 nat = importr("nat")
 nblast = importr("nat.nblast")
 
+tlog = TimingLogger("NBLAST/py")
+
 
 def load_dps(ids):
+    tlog.report(f"Loading DPs for {len(ids)} IDs")
     base_dir = os.path.join(os.getcwd(), "swc")
 
     def to_swc_fname(f):
@@ -28,7 +34,9 @@ def load_dps(ids):
             n = r['read.neuron'](p)
             dps_dict[str(f)] = nat.dotprops(n)
         except Exception as e:
-            print(f"Exception for {f}: {e}")
+            tlog.report(f"Exception for {f}: {e}")
+
+    tlog.report(f"Loaded {len(dps_dict)} DPs out of {len(ids)}")
     return dps_dict
 
 
@@ -38,17 +46,38 @@ def nblast_pair(file1: str, file2: str) -> float:
     return float(score[0])
 
 
-def nblast_list(ids, min_score) -> dict:
+def nblast_all_by_all(ids, min_score) -> dict:
     dps_dict = load_dps(ids)
+    tlog.report(f"Running all by all nblast for {len(dps_dict)} SWCs")
     res_vec = nblast.nblast_allbyall(nat.as_neuronlist(ro.ListVector(dps_dict)), normalisation="mean")
+    tlog.report(f"Storing scores in dict {len(dps_dict)} SWCs")
     res_dict = {}
     flist = sorted(dps_dict.keys())
     for i, f1 in enumerate(flist):
         for j, f2 in enumerate(flist):
             score = res_vec[len(flist) * i + j]
-            if score >= min_score:
+            if f1 != f2 and score >= min_score:
                 res_dict[(f1, f2)] = score
                 assert res_dict.get((f2, f1), score) == score
+    tlog.report(f"Stored {len(res_dict)} scores >{min_score}")
+    return res_dict
+
+def nblast_list_to_list(ids1, ids2, min_score) -> dict:
+    dps_dict_1 = load_dps(ids1)
+    dps_dict_2 = load_dps(ids2)
+    tlog.report(f"Running list to list nblast for {len(dps_dict_1)} X {len(dps_dict_2)} SWCs")
+    res_dict = {}
+    for f1, dp1 in dps_dict_1.items():
+        for f2, dp2 in dps_dict_2.items():
+            if f1 == f2:
+                continue
+            s12 = nblast.nblast(dp1, dp2, normalised=True)
+            s21 = nblast.nblast(dp2, dp1, normalised=True)
+            score = (float(s12[0]) + float(s21[0])) / 2
+            if score >= min_score:
+                res_dict[(f1, f2)] = score
+                res_dict[(f2, f1)] = score
+    tlog.report(f"Stored {len(res_dict)} scores >{min_score}")
     return res_dict
 
 

@@ -2,7 +2,7 @@ import json
 import os
 from unittest import TestCase
 
-from run_nblast import nblast_list
+from run_nblast import nblast_all_by_all, nblast_list_to_list
 
 
 class Test(TestCase):
@@ -18,8 +18,10 @@ class Test(TestCase):
                                      720575940638642547, 720575940609030776, 720575940627947772, 720575940619559838,
                                      720575940612033253, 720575940624710653]]
         print(f"Filtered {len(files)} swc files")
-        res = nblast_list(files, min_score=0.1)
-        print(json.dumps({str(k): v for k, v in res.items()}, indent=2))
+        res_w = nblast_all_by_all(files, min_score=0.1)
+        res_d = nblast_list_to_list(files, files, min_score=0.1)
+        self.assertEqual(res_d, res_w)
+        print(json.dumps({str(k): v for k, v in res_w.items()}, indent=2))
 
 
 
