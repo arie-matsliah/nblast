@@ -1,5 +1,7 @@
 import random
 
+INTERACTIVE_MODE = False
+EPISODES = 25_000
 PLAYER_X = 'X'
 PLAYER_O = 'O'
 EMPTY = ' '
@@ -167,24 +169,21 @@ def play_vs_agent(agent):
 
 
 if __name__ == "__main__":
-    INTERACTIVE_MODE = False
-
     if INTERACTIVE_MODE:
         while True:
             q_agent = QLearningAgent()
             print("Training agent for interactive play...")
-            train(q_agent, episodes=25000)
+            train(q_agent, episodes=EPISODES)
             play_vs_agent(q_agent)
     else:
         results = []
-        episode_steps = range(0, 30001, 1500)
+        episode_steps = range(0, EPISODES + 1, 1000)
         for episodes in episode_steps:
             print(f"\n--- Training with {episodes} episodes ---")
             q_agent = QLearningAgent()
             train(q_agent, episodes=episodes)
             optimal_agent = MinimaxAgent(player=PLAYER_O)
-            draw_rate = run_test(q_agent, optimal_agent, num_games=1000)
-            results.append(draw_rate)
+            results.append(run_test(q_agent, optimal_agent, num_games=1000))
         print("\n--- Draw Rate vs. Training Episodes ---")
         for episodes, rate in zip(episode_steps, results):
             bar = "#" * int(rate * 50)
