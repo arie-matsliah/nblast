@@ -1,6 +1,7 @@
 import random
 from collections import defaultdict
 
+
 # Tic-Tac-Toe Environment
 class TicTacToe:
     def __init__(self):
@@ -22,17 +23,17 @@ class TicTacToe:
         self.board[action] = self.current_player
         winner = self.check_winner()
         done = winner is not None or " " not in self.board
+
+        # The reward is for the player who just moved
         reward = 0
-
         if done:
-            if winner == self.current_player:  # the one who just moved
-                reward = 1
-            elif winner is not None:  # the other player won
-                reward = -1
-            else:  # draw
-                reward = 0
+            if winner == self.current_player:
+                reward = 1  # Win
+            # No reward for a loss (-1) is needed here, as the learning
+            # algorithm will penalize the losing move implicitly.
+            # A draw results in the default reward of 0.
 
-        # Switch player
+        # Switch player for the next turn
         self.current_player = "O" if self.current_player == "X" else "X"
         return self.get_state(), reward, done
 
@@ -40,7 +41,7 @@ class TicTacToe:
         lines = [
             (0, 1, 2), (3, 4, 5), (6, 7, 8),  # rows
             (0, 3, 6), (1, 4, 7), (2, 5, 8),  # cols
-            (0, 4, 8), (2, 4, 6)              # diagonals
+            (0, 4, 8), (2, 4, 6)  # diagonals
         ]
         for a, b, c in lines:
             if self.board[a] == self.board[b] == self.board[c] != " ":
@@ -48,10 +49,9 @@ class TicTacToe:
         return None
 
     def render(self):
-        print("\n".join([
-            "|".join(self.board[i:i+3]) for i in range(0, 9, 3)
-        ]))
-        print()
+        board_rows = [" | ".join(self.board[i:i + 3]) for i in range(0, 9, 3)]
+        print("\n" + "\n---|---|---\n".join(board_rows) + "\n")
+
 
 # Q-Learning Agent
 class QLearningAgent:
@@ -62,11 +62,12 @@ class QLearningAgent:
         self.gamma = gamma
 
     def get_q(self, state, action):
-        return self.q[(state, action)]
+        return self.q.get((state, action), 0.0)
 
     def best_action(self, state, actions):
         qs = [self.get_q(state, a) for a in actions]
         max_q = max(qs)
+        # In case of a tie, pick one randomly
         best = [a for a, q in zip(actions, qs) if q == max_q]
         return random.choice(best)
 
@@ -76,13 +77,21 @@ class QLearningAgent:
         return self.best_action(state, actions)
 
     def update(self, state, action, reward, next_state, next_actions, done):
+        """
+        FIX #1: The Q-learning update rule was corrected for an adversarial game.
+        """
         old_q = self.get_q(state, action)
         if done:
             target = reward
         else:
+            # The value of the next state is the NEGATIVE of the max Q-value
+            # for the opponent. The opponent will choose the move that is best
+            # for them, which is worst for the current agent.
             next_q = max([self.get_q(next_state, a) for a in next_actions]) if next_actions else 0
-            target = reward + self.gamma * next_q
+            target = reward - self.gamma * next_q  # The crucial change is this minus sign
+
         self.q[(state, action)] = old_q + self.alpha * (target - old_q)
+
 
 # Training loop
 def train(episodes):
@@ -95,57 +104,63 @@ def train(episodes):
             actions = env.available_actions()
             action = agent.choose_action(state, actions)
 
-            # Save which player is moving
-            current_player = env.current_player
-
             next_state, reward, done = env.step(action)
             next_actions = env.available_actions()
 
-            # Update ONLY for the player who just moved
+            # Update Q-table for the move that was just made
             agent.update(state, action, reward, next_state, next_actions, done)
 
             state = next_state
     return agent
 
+
 # Play against the trained agent
 def play(agent):
+    """
+    FIX #2: The play loop was rewritten to be more robust and to
+    correctly announce the winner.
+    """
     env = TicTacToe()
     state = env.reset()
+    done = False
+    print("Starting a new game. You are 'O'.")
     env.render()
 
-    while True:
+    while not done:
+        actions = env.available_actions()
+        if not actions:
+            break  # Game ends in a draw if no actions left
+
         if env.current_player == "X":
-            # Agent move
-            action = agent.best_action(state, env.available_actions())
-            state, reward, done = env.step(action)
-            print("Agent's move:")
-            env.render()
-            if done:
-                if reward == 1:
-                    print("Agent wins!")
-                elif reward == -1:
-                    print("You win!")
-                else:
-                    print("Draw!")
-                break
+            # Agent's turn
+            print("Agent's move (X):")
+            action = agent.best_action(state, actions)
+            state, _, done = env.step(action)
         else:
-            # Human move
-            action = int(input("Your move (0-8): "))
-            while action not in env.available_actions():
-                action = int(input("Invalid. Your move (0-8): "))
-            state, reward, done = env.step(action)
-            env.render()
-            if done:
-                if reward == 1:
-                    print("Agent wins!")
-                elif reward == -1:
-                    print("You win!")
-                else:
-                    print("Draw!")
-                break
+            # Human's turn
+            action = -1
+            while action not in actions:
+                try:
+                    action = int(input(f"Your move (O) - choose from {actions}: "))
+                    if action not in actions:
+                        print("Invalid move. Please choose from the available spots.")
+                except ValueError:
+                    print("Invalid input. Please enter a number.")
+            state, _, done = env.step(action)
+
+        env.render()
+
+    # Announce the result once the game is over
+    winner = env.check_winner()
+    if winner:
+        print(f"Game over! Player {winner} wins!")
+    else:
+        print("Game over! It's a draw!")
+
 
 if __name__ == "__main__":
-    print("Training agent... please wait")
-    trained_agent = train(episodes=50000)
-    print("Training finished. Let's play!")
-    play(trained_agent)
+    while True:
+        print("Training agent... this may take a moment.")
+        trained_agent = train(episodes=50000)
+        print("Training finished. Let's play!")
+        play(trained_agent)
