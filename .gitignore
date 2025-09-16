@@ -2,3 +2,4 @@ swc*/
 .RData
 .Rhistory
 .idea/
+__pycache__/
