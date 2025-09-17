@@ -16,6 +16,8 @@ q()
 ## Inside python env (e.g. conda)
 ```
 pip install rpy2
+pip install navis
+pip install plotly
 ```
 
 # Get data
@@ -23,5 +25,5 @@ Place swc files under `./swc/`
 
 # Run
 ```
-python -m run_nblast
+python -m run_nblast swc/file1.swc swc/file2.swc 
 ```
