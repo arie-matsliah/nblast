@@ -1,6 +1,8 @@
 import json
 import os
 import sys
+from pathlib import Path
+
 import rpy2.robjects as ro
 from rpy2.robjects.packages import importr
 from rpy2.robjects import r
@@ -13,10 +15,13 @@ nblast = importr("nat.nblast")
 
 tlog = TimingLogger("NBLAST/py")
 
+def load_dp(rid, folder):
+    dct = load_dps([rid], folder)
+    return dct[rid]
 
-def load_dps(ids):
+def load_dps(ids, folder):
     tlog.report(f"Loading DPs for {len(ids)} IDs")
-    base_dir = os.path.join(os.getcwd(), "swc")
+    base_dir = os.path.join(os.getcwd(), folder)
 
     def to_swc_fname(f):
         if isinstance(f, str) and f.endswith(".swc"):
@@ -40,46 +45,55 @@ def load_dps(ids):
     return dps_dict
 
 
-def nblast_pair(file1: str, file2: str) -> float:
-    dps_dict = load_dps([file1, file2])
-    score = nblast.nblast(dps_dict[file1], dps_dict[file2], normalised=True)
-    return float(score[0])
+def nblast_file_path_pair(file1, file2):
+    path1, path2 = Path(file1), Path(file2)
+    return nblast_id_pair(path1.stem, path2.stem, str(path1.parent), str(path2.parent))
 
 
-def nblast_all_by_all(ids, min_score) -> dict:
-    dps_dict = load_dps(ids)
+def nblast_id_pair(id1: str, id2: str, folder1: str, folder2: str) -> float:
+    return nblast_dp_pair(load_dp(id1, folder1), load_dp(id2, folder2))
+
+
+def nblast_dp_pair(dp1, dp2) -> float:
+    score1 = nblast.nblast(dp1, dp2, normalised=True)
+    score2 = nblast.nblast(dp2, dp1, normalised=True)
+    return (score1[0] + score2[0]) / 2
+
+
+def nblast_all_by_all(ids, folder, min_score) -> dict:
+    dps_dict = load_dps(ids, folder)
     tlog.report(f"Running all by all nblast for {len(dps_dict)} SWCs")
     res_vec = nblast.nblast_allbyall(nat.as_neuronlist(ro.ListVector(dps_dict)), normalisation="mean")
     tlog.report(f"Storing scores in dict {len(dps_dict)} SWCs")
-    res_dict = {}
-    flist = sorted(dps_dict.keys())
-    for i, f1 in enumerate(flist):
-        for j, f2 in enumerate(flist):
-            score = res_vec[len(flist) * i + j]
-            if f1 != f2 and score >= min_score:
-                res_dict[(f1, f2)] = score
-                assert res_dict.get((f2, f1), score) == score
-    tlog.report(f"Stored {len(res_dict)} scores >{min_score}")
+    dimnames = res_vec.do_slot("dimnames")
+    rownames = list(dimnames[0])
+    colnames = list(dimnames[1])
+    res_dict = {
+        (rrid, crid): res_vec[i * len(ids) + j]
+        for i, rrid in enumerate(rownames)
+        for j, crid in enumerate(colnames)
+    }
+    res_dict = {k: v for k, v in res_dict.items() if v >= min_score}
+    tlog.report(f"[nblast_all_by_all] Stored {len(res_dict)} scores >{min_score}")
     return res_dict
 
-def nblast_list_to_list(ids1, ids2, min_score) -> dict:
-    dps_dict_1 = load_dps(ids1)
-    dps_dict_2 = load_dps(ids2)
+
+def nblast_list_to_list(ids1, ids2, folder1, folder2, min_score) -> dict:
+    dps_dict_1 = load_dps(ids1, folder1)
+    dps_dict_2 = load_dps(ids2, folder2)
     tlog.report(f"Running list to list nblast for {len(dps_dict_1)} X {len(dps_dict_2)} SWCs")
     res_dict = {}
     for f1, dp1 in dps_dict_1.items():
         for f2, dp2 in dps_dict_2.items():
-            if f1 == f2:
-                continue
-            s12 = nblast.nblast(dp1, dp2, normalised=True)
-            s21 = nblast.nblast(dp2, dp1, normalised=True)
-            score = (float(s12[0]) + float(s21[0])) / 2
-            if score >= min_score:
-                res_dict[(f1, f2)] = score
-                res_dict[(f2, f1)] = score
-    tlog.report(f"Stored {len(res_dict)} scores >{min_score}")
+            sc = float(nblast_dp_pair(dp1, dp2))
+            if sc >= min_score:
+                res_dict[(f1, f2)] = sc
+                if (f2, f1) in res_dict:
+                    assert sc == res_dict[(f2, f1)]
+                else:
+                    res_dict[(f2, f1)] = sc
+    tlog.report(f"[nblast_list_to_list] Stored {len(res_dict)} scores >{min_score}")
     return res_dict
-
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
@@ -87,7 +101,7 @@ if __name__ == "__main__":
         sys.exit(1)
     file1, file2 = sys.argv[1], sys.argv[2]
     try:
-        score = nblast_pair(file1, file2)
+        score = nblast_file_path_pair(file1, file2)
         print(f"NBLAST score between {file1} and {file2}: {score}")
     except Exception as e:
         print(f"Error: {e}")
